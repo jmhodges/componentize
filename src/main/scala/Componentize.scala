@@ -2,6 +2,7 @@ package componentize
 
 import org.apache.hadoop.util.ToolRunner
 import org.apache.hadoop.util.Tool
+import org.apache.hadoop.util.GenericOptionsParser
 import org.apache.hadoop.conf.Configured
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.Path
@@ -417,7 +418,7 @@ object Componentize {
 
 class Componentize extends Configured with Tool {
   def run(args: Array[String]): Int = {
-    val conf = getConf()
+    val conf = getRealConf(args)
 
     if (!Componentize.SetUp.run(conf)) {
       return 1
@@ -437,5 +438,16 @@ class Componentize extends Configured with Tool {
     }
     Componentize.LOG.info("Finished ThirdPhase.")
     return 0
+  }
+
+  def getRealConf(args: Array[String]) : Configuration = {
+    val gp = new GenericOptionsParser(getConf(), args);
+    val conf = gp.getConfiguration();
+
+    // Used by SecondPhase to store whether or not any new zone
+    // transfers have occured. If there haven't been, we know we on
+    // our final rotation of the phases.
+    conf.setBoolean("componentize.hasnewzonetransfers", false)
+    conf
   }
 }
