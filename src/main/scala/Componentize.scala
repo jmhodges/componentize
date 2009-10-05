@@ -33,19 +33,27 @@ object Main {
   }
 }
 
-object Componentize {
-  type Conf = Configuration
-
-  implicit def conf2ComponentConf(conf: Conf) = new {
+trait ConfigImplicits {
+  implicit def conf2ComponentConf(conf: Configuration) = new {
     def edgePath : Path = {
       new Path(new File(conf.get("componentize.edgedir")).getCanonicalPath)
     }
 
     def outputPath(dirname: String) : Path = {
-      val foo = new File(conf.get("componentize.outputdir")).getCanonicalPath
-      new Path(foo + File.separatorChar + dirname)
+      outputPath(dirname, rotation)
     }
+
+    def outputPath(dirname: String, rot: Long) = {
+      val foo = new File(conf.get("componentize.outputdir")).getCanonicalPath
+      new Path(foo + File.separatorChar + dirname + rot)
+    }
+
+    def rotation : Long = { conf.getLong("componentize.rotation", 0) }
   }
+}
+
+object Componentize extends ConfigImplicits {
+  type Conf = Configuration
 
   implicit def string2Text(str: String) : Text = new Text(str)
 
@@ -141,7 +149,8 @@ object Componentize {
       FileInputFormat.setInputPaths(job, conf.edgePath)
 
       job.setOutputFormatClass(classOf[TextOutputFormat[Text, Text]])
-      FileOutputFormat.setOutputPath(job, conf.outputPath("zonefiles"))
+      FileOutputFormat.setOutputPath(job,
+                                     conf.outputPath("zonefiles"))
 
       job.setMapOutputKeyClass(classOf[Text])
       job.setMapOutputValueClass(classOf[Text])
@@ -215,7 +224,7 @@ object Componentize {
 
       val zoneJob = mapperJob(conf,classOf[ZoneMapper],
                               "zone mapper",
-                              conf.outputPath("zonefiles"),
+                              conf.outputPath("zonefiles", conf.rotation-1),
                               conf.outputPath("zonefilesjoin"))
       if (!zoneJob.waitForCompletion(true)) return false
 
@@ -289,6 +298,7 @@ object Componentize {
 
         for (zone <- zones) {
           if(zone != smallestZone) {
+            context.getCounter("componentize", "zonetrans").increment(1)
             context.write(new Text(zone), new Text(smallestZone))
           }
         }
@@ -307,14 +317,19 @@ object Componentize {
       job.setOutputFormatClass(classOf[SequenceFileOutputFormat[Text, Text]])
       FileOutputFormat.setOutputPath(job, conf.outputPath("interzonefiles"))
 
-
       job.setMapOutputKeyClass(classOf[Text])
       job.setMapOutputValueClass(classOf[Text])
 
       job.setOutputKeyClass(classOf[Text])
       job.setOutputValueClass(classOf[Text])
       LOG.info("Running SecondPhase.")
-      job.waitForCompletion(true)
+
+
+      val boo = job.waitForCompletion(true)
+      val zoneTrans = job.getCounters.findCounter("componentize", "zonetrans").getValue
+      conf.setBoolean("componentize.hasnewzonetransfers", zoneTrans != 0)
+
+      boo
     }
   }
 
@@ -336,7 +351,7 @@ object Componentize {
         val zone = nodeAndZone(0)
         val node = nodeAndZone(1).split(",")(0)
         val aw = new TextArrayWritable(Array(FromZoneFile, new Text(node)))
-
+        
         context.write(new Text(zone), aw)
       }
     }
@@ -385,7 +400,7 @@ object Componentize {
       val zoneVertexJob = mapperJob(conf,
                                     classOf[ZoneFileVertexMapper],
                                     "zone vertex mapper",
-                                    conf.outputPath("zonefiles"),
+                                    conf.outputPath("zonefiles", conf.rotation-1),
                                     conf.outputPath("zonefilestransitionsjoin"),
                                     classOf[TextInputFormat]
                                   )
@@ -432,7 +447,7 @@ object Componentize {
                                     conf.outputPath("zonefilestransitionsjoin"))
 
       job.setOutputFormatClass(classOf[TextOutputFormat[Text, Text]])
-      FileOutputFormat.setOutputPath(job, conf.outputPath("latestzonefiles"))
+      FileOutputFormat.setOutputPath(job, conf.outputPath("zonefiles"))
 
       job.setMapOutputKeyClass(classOf[Text])
       job.setMapOutputValueClass(classOf[TextArrayWritable])
@@ -443,7 +458,7 @@ object Componentize {
   }
 }
 
-class Componentize extends Configured with Tool {
+class Componentize extends Configured with Tool with ConfigImplicits {
   def run(args: Array[String]): Int = {
     val conf = getRealConf(args)
 
@@ -452,19 +467,36 @@ class Componentize extends Configured with Tool {
     }
     Componentize.LOG.info("Finished creating the zonefiles.")
 
-    if (!Componentize.FirstPhase.run(conf)) {
-      return 1
-    }
-    Componentize.LOG.info("Finished FirstPhase.")
-    if (!Componentize.SecondPhase.run(conf)) {
-      return 1
-    }
-    Componentize.LOG.info("Finished SecondPhase.")
-    if (!Componentize.ThirdPhase.run(conf)) {
-      return 1
-    }
-    Componentize.LOG.info("Finished ThirdPhase.")
+    
+    runPhases(conf)
+  }
+
+  def runPhases(conf: Configuration) : Int = {
+    conf.setLong("componentize.rotation", 1)
+    do {
+      if (!Componentize.FirstPhase.run(conf)) {
+        return 1
+      }
+
+      Componentize.LOG.info("Finished FirstPhase.")
+      if (!Componentize.SecondPhase.run(conf)) {
+        return 1
+      }
+      
+      Componentize.LOG.info("Finished SecondPhase.")
+      if (!Componentize.ThirdPhase.run(conf)) {
+        return 1
+      }
+      Componentize.LOG.info("Finished ThirdPhase.")
+
+      conf.setLong("componentize.rotation", conf.rotation+1)
+    } while (hasNewZoneTransfers(conf))
+
     return 0
+  }
+
+  def hasNewZoneTransfers(conf: Configuration) : Boolean = {
+    conf.getBoolean("componentize.hasnewzonetransfers", false)
   }
 
   def getRealConf(args: Array[String]) : Configuration = {
@@ -485,12 +517,11 @@ class Componentize extends Configured with Tool {
                    cl.getOptionValue("edgedir", "edgefiles"))
     conf.set("componentize.outputdir",
                    cl.getOptionValue("outputdir", "output"))
-    println("ZOMG " + conf.get("componentize.edgedir"))
+
     conf
   }
 
   def additionalOptions() : Options = {
-    // OptionBuilder.getMethods.foreach(m => println(m))
     var input = new CmdOption("edgedir",
                               true,
                               "Directory to read the edgefiles from")
