@@ -17,6 +17,12 @@ import org.apache.hadoop.mapreduce.lib.output.TextOutputFormat
 import org.apache.hadoop.mapreduce.lib.input.SequenceFileInputFormat
 import org.apache.hadoop.mapreduce.lib.output.SequenceFileOutputFormat
 import org.apache.log4j.Logger
+import org.apache.commons.cli.CommandLine
+import org.apache.commons.cli.Options
+import org.apache.commons.cli.{Option => CmdOption}
+import org.apache.commons.cli.OptionBuilder
+import java.io.File
+
 import java.lang.{Iterable => JavaItb}
 import java.util.{Iterator => JavaItr}
 
@@ -29,6 +35,17 @@ object Main {
 
 object Componentize {
   type Conf = Configuration
+
+  implicit def conf2ComponentConf(conf: Conf) = new {
+    def edgePath : Path = {
+      new Path(new File(conf.get("componentize.edgedir")).getCanonicalPath)
+    }
+
+    def outputPath(dirname: String) : Path = {
+      val foo = new File(conf.get("componentize.outputdir")).getCanonicalPath
+      new Path(foo + File.separatorChar + dirname)
+    }
+  }
 
   implicit def string2Text(str: String) : Text = new Text(str)
 
@@ -121,10 +138,10 @@ object Componentize {
       job.setReducerClass(classOf[ZoneFileFromEdgeFileReducer])
       
       job.setInputFormatClass(classOf[TextInputFormat])
-      FileInputFormat.setInputPaths(job, new Path("edgefiles"))
+      FileInputFormat.setInputPaths(job, conf.edgePath)
 
       job.setOutputFormatClass(classOf[TextOutputFormat[Text, Text]])
-      FileOutputFormat.setOutputPath(job, new Path("zonefiles"))
+      FileOutputFormat.setOutputPath(job, conf.outputPath("zonefiles"))
 
       job.setMapOutputKeyClass(classOf[Text])
       job.setMapOutputValueClass(classOf[Text])
@@ -190,10 +207,16 @@ object Componentize {
     def run(conf: Conf) : Boolean = {
       LOG.info("Running FirstPhase.")
       
-      val edgeJob = mapperJob(conf, classOf[EdgeMapper], "edge mapper", "edgefiles")
+      val edgeJob = mapperJob(conf, classOf[EdgeMapper],
+                              "edge mapper",
+                              conf.edgePath,
+                              conf.outputPath("edgefilesjoin"))
       if (!edgeJob.waitForCompletion(true)) return false
 
-      val zoneJob = mapperJob(conf,classOf[ZoneMapper], "zone mapper", "zonefiles")
+      val zoneJob = mapperJob(conf,classOf[ZoneMapper],
+                              "zone mapper",
+                              conf.outputPath("zonefiles"),
+                              conf.outputPath("zonefilesjoin"))
       if (!zoneJob.waitForCompletion(true)) return false
 
       val job = joinJob(conf)
@@ -203,14 +226,15 @@ object Componentize {
     def mapperJob(conf: Conf,
                   mapperKlass: Class[_ <: Mapper[_,_,_,_]],
                   name: String,
-                  inputPath: String) : Job = {
+                  inputPath: Path,
+                  outputPath: Path) : Job = {
       val job = new Job(conf, name)
       job.setJarByClass(classOf[Componentize])
       job.setMapperClass(mapperKlass)
       
       job.setInputFormatClass(classOf[TextInputFormat])
-      FileInputFormat.setInputPaths(job, new Path(inputPath))
-      FileOutputFormat.setOutputPath(job, new Path(inputPath+"join"))
+      FileInputFormat.setInputPaths(job, inputPath)
+      FileOutputFormat.setOutputPath(job, outputPath)
       
       job.setMapOutputKeyClass(classOf[Text])
       job.setMapOutputValueClass(classOf[TextArrayWritable])
@@ -230,11 +254,11 @@ object Componentize {
       job.setInputFormatClass(
         classOf[SequenceFileInputFormat[Text, TextArrayWritable]])
       FileInputFormat.setInputPaths(job,
-                                    new Path("edgefilesjoin"),
-                                    new Path("zonefilesjoin"))
+                                    conf.outputPath("edgefilesjoin"),
+                                    conf.outputPath("zonefilesjoin"))
       job.setOutputFormatClass(classOf[SequenceFileOutputFormat[Text, Text]])
 
-      FileOutputFormat.setOutputPath(job, new Path("edgewithonezonefiles"))
+      FileOutputFormat.setOutputPath(job, conf.outputPath("edgewithonezonefiles"))
 
       job.setMapOutputKeyClass(classOf[Text])
       job.setMapOutputValueClass(classOf[TextArrayWritable])
@@ -278,10 +302,10 @@ object Componentize {
       job.setReducerClass(classOf[InterZoneReducer])
       
       job.setInputFormatClass(classOf[SequenceFileInputFormat[Text, Text]])
-      FileInputFormat.setInputPaths(job, new Path("edgewithonezonefiles"))
+      FileInputFormat.setInputPaths(job, conf.outputPath("edgewithonezonefiles"))
 
       job.setOutputFormatClass(classOf[SequenceFileOutputFormat[Text, Text]])
-      FileOutputFormat.setOutputPath(job, new Path("interzonefiles"))
+      FileOutputFormat.setOutputPath(job, conf.outputPath("interzonefiles"))
 
 
       job.setMapOutputKeyClass(classOf[Text])
@@ -350,7 +374,8 @@ object Componentize {
       val interzoneJob = mapperJob(conf,
                                    classOf[InterZoneMapper],
                                    "interzone mapper",
-                                   "interzonefiles",
+                                   conf.outputPath("interzonefiles"),
+                                   conf.outputPath("interzonefilestransitionsjoin"),
                                    classOf[SequenceFileInputFormat[Text, Text]]
                                  )
 
@@ -360,7 +385,8 @@ object Componentize {
       val zoneVertexJob = mapperJob(conf,
                                     classOf[ZoneFileVertexMapper],
                                     "zone vertex mapper",
-                                    "zonefiles",
+                                    conf.outputPath("zonefiles"),
+                                    conf.outputPath("zonefilestransitionsjoin"),
                                     classOf[TextInputFormat]
                                   )
 
@@ -373,17 +399,18 @@ object Componentize {
     def mapperJob(conf: Conf,
                   mapperKlass: Class[_ <: Mapper[_,_,_,_]],
                   name: String,
-                  inputPath: String,
+                  inputPath: Path,
+                  outputPath: Path,
                   inputFormatKlass: Class[_ <: FileInputFormat[_,_]]) : Job = {
       val job = new Job(conf, name)
       job.setJarByClass(classOf[Componentize])
       job.setMapperClass(mapperKlass)
       job.setInputFormatClass(inputFormatKlass)
 
-      FileInputFormat.setInputPaths(job, new Path(inputPath))
+      FileInputFormat.setInputPaths(job, inputPath)
       job.setOutputFormatClass(
         classOf[SequenceFileOutputFormat[Text, TextArrayWritable]])
-      FileOutputFormat.setOutputPath(job, new Path(inputPath+"transitionsjoin"))
+      FileOutputFormat.setOutputPath(job, outputPath)
 
       job.setMapOutputKeyClass(classOf[Text])
       job.setMapOutputValueClass(classOf[TextArrayWritable])
@@ -401,11 +428,11 @@ object Componentize {
       job.setInputFormatClass(
         classOf[SequenceFileInputFormat[Text, TextArrayWritable]])
       FileInputFormat.setInputPaths(job,
-                                    new Path("interzonefilestransitionsjoin"),
-                                    new Path("zonefilestransitionsjoin"))
+                                    conf.outputPath("interzonefilestransitionsjoin"),
+                                    conf.outputPath("zonefilestransitionsjoin"))
 
       job.setOutputFormatClass(classOf[TextOutputFormat[Text, Text]])
-      FileOutputFormat.setOutputPath(job, new Path("latestzonefiles"))
+      FileOutputFormat.setOutputPath(job, conf.outputPath("latestzonefiles"))
 
       job.setMapOutputKeyClass(classOf[Text])
       job.setMapOutputValueClass(classOf[TextArrayWritable])
@@ -441,13 +468,40 @@ class Componentize extends Configured with Tool {
   }
 
   def getRealConf(args: Array[String]) : Configuration = {
-    val gp = new GenericOptionsParser(getConf(), args);
-    val conf = gp.getConfiguration();
+    val gp = new GenericOptionsParser(getConf(), additionalOptions(), args)
+    val conf = gp.getConfiguration()
+
+    val cl = gp.getCommandLine()
+    if (cl == null) {
+      System.exit(1)
+    }
 
     // Used by SecondPhase to store whether or not any new zone
     // transfers have occured. If there haven't been, we know we on
     // our final rotation of the phases.
     conf.setBoolean("componentize.hasnewzonetransfers", false)
+
+    conf.set("componentize.edgedir",
+                   cl.getOptionValue("edgedir", "edgefiles"))
+    conf.set("componentize.outputdir",
+                   cl.getOptionValue("outputdir", "output"))
+    println("ZOMG " + conf.get("componentize.edgedir"))
     conf
+  }
+
+  def additionalOptions() : Options = {
+    // OptionBuilder.getMethods.foreach(m => println(m))
+    var input = new CmdOption("edgedir",
+                              true,
+                              "Directory to read the edgefiles from")
+    input.setType("")
+    var output = new CmdOption("outputdir",
+                               true,
+                               "Directory to write all output to")
+    input.setType("")
+    val ops = new Options()
+    ops.addOption(input)
+    ops.addOption(output)
+    ops
   }
 }
