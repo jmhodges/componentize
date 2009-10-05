@@ -324,7 +324,6 @@ object Componentize extends ConfigImplicits {
       job.setOutputValueClass(classOf[Text])
       LOG.info("Running SecondPhase.")
 
-
       val boo = job.waitForCompletion(true)
       val zoneTrans = job.getCounters.findCounter("componentize", "zonetrans").getValue
       conf.setBoolean("componentize.hasnewzonetransfers", zoneTrans != 0)
@@ -467,7 +466,6 @@ class Componentize extends Configured with Tool with ConfigImplicits {
     }
     Componentize.LOG.info("Finished creating the zonefiles.")
 
-    
     runPhases(conf)
   }
 
