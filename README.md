@@ -34,12 +34,13 @@ A couple of nice things:
 1. Buildr will go out of its way to find the
 Scala jarfiles and add them for you. I know for a fact, in fact, that
 if you install Scala through MacPorts on OS X, the `jbuildr` command
-will find your Scala jarfiles and add them for you.
+will find your Scala jarfiles and add them for you to the classpath
+Componentize will be built with.
 
 2. If you create a `lib` directory in your
 checkout of Componentize and copy all of the Hadoop and Hadoop
-dependency jarfiles to it, you will magically have them added to your
-`CLASSPATH`.
+dependency jarfiles to it, you will magically have them added to
+classpath used to build Componentize.
 
 In any case, the jarfile will appear in the `target` directory as
 `componentize-$someversion.jar`. 
