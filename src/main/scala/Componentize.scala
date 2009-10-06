@@ -489,6 +489,7 @@ class Componentize extends Configured with Tool with ConfigImplicits {
       conf.setLong("componentize.rotation", conf.rotation+1)
     } while (hasNewZoneTransfers(conf))
 
+    Componentize.LOG.info("Output directory: "+conf.outputPath("zonefiles"))
     return 0
   }
 
