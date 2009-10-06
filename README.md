@@ -4,7 +4,7 @@ Componentize is an implementation of the connected component MapReduce
 algorithm found in [Graph Twiddling in a MapReduce
 World](http://www2.computer.org/portal/web/csdl/doi/10.1109/MCSE.2009.120).
 
-It is my understanding that is is pretty cool. I don't know about
+It is my understanding that it is pretty cool. I don't know about
 "awesome", yet. We'll see.
 
 # Requirements
