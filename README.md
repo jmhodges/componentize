@@ -60,15 +60,15 @@ slyly mentioned in the above command, you'll need one or more files
 with data formatted as:
 
      nodeid1	nodeid2
-     node56	nodeid1000
+     nodeid56	nodeid1000
 
-and so on. Let's be clear here, that character in the middle of the
-node ids are NOT spaces. They are a big fat TAB, as in "\t". If your
-editor sucks.
+and so on. Let's be clear here, those are big fat TAB characters in
+the middle there. TAB as in "\t"; as in that key over "Caps Lock". They
+are **not** spaces.
 
 ### Output
 
-The output of Componentize is .. verbose. And I don't just mean what's
+The output of Componentize is ... verbose. And I don't just mean what's
 printed to `/dev/stdout`. In the output directory, you'll have 6
 directories of output for each iteration of Componentize. This is not
 a lot of fun.
