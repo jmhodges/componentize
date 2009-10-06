@@ -134,8 +134,7 @@ object Componentize extends ConfigImplicits {
 
     class ZoneFileFromEdgeFileReducer extends SReducer[Text, Text, Text, Text] {
       override def reduce(node: Text, sameNodes: Iterable[Text], context:Context) {
-        var pairtxt = Array(node.toString, node.toString).mkString(",")
-        context.write(node, new Text(pairtxt))
+        context.write(node, node)
       }
     }
 
@@ -178,9 +177,9 @@ object Componentize extends ConfigImplicits {
 
     class ZoneMapper extends SMapper[LongWritable, Text, Text, TextArrayWritable] {
       override def map(key: LongWritable, line: Text, context: Context) = {
-        val zoneAndEdge = line.toString.split("\t")
-        var zone = zoneAndEdge(0)
-        val node = zoneAndEdge(1).split(",")(0)
+        val zoneAndNode = line.toString.split("\t")
+        var zone = zoneAndNode(0)
+        val node = zoneAndNode(1)
         val aw = new TextArrayWritable(Array(FromZoneFile, new Text(zone)))
 
         context.write(new Text(node), aw)
@@ -345,10 +344,10 @@ object Componentize extends ConfigImplicits {
 
     class ZoneFileVertexMapper
     extends SMapper[LongWritable, Text, Text, TextArrayWritable] {
-      override def map(key: LongWritable, nodeAndZoneLine: Text, context: Context) = {
-        val nodeAndZone = nodeAndZoneLine.toString.split("\t")
-        val zone = nodeAndZone(0)
-        val node = nodeAndZone(1).split(",")(0)
+      override def map(key: LongWritable, line: Text, context: Context) = {
+        val zoneAndNode = line.toString.split("\t")
+        val zone = zoneAndNode(0)
+        val node = zoneAndNode(1)
         val aw = new TextArrayWritable(Array(FromZoneFile, new Text(node)))
         
         context.write(new Text(zone), aw)
@@ -379,7 +378,7 @@ object Componentize extends ConfigImplicits {
         }
 
         nodes.foreach(node =>
-          context.write(new Text(smallestZone), new Text(node+","+smallestZone)))
+          context.write(new Text(smallestZone), new Text(node)))
       }
     }
 
