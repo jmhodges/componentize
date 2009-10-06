@@ -67,6 +67,8 @@ and so on. Let's be clear here, those are big fat TAB characters in
 the middle there. TAB as in "\t"; as in that key over "Caps Lock". They
 are **not** spaces.
 
+You can find some example input data in the `examples` directory.
+
 ### Output
 
 The output of Componentize is ... verbose. And I don't just mean what's
