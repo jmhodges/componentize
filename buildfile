@@ -1,6 +1,6 @@
 require 'buildr/scala'
 
-VERSION_NUMBER = "1.0.0"
+VERSION_NUMBER = "0.9.0"
 # Group identifier for your projects
 GROUP = "componentize"
 COPYRIGHT = ""
