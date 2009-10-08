@@ -5,10 +5,9 @@ import org.apache.hadoop.util.Tool
 import org.apache.hadoop.util.GenericOptionsParser
 import org.apache.hadoop.conf.Configured
 import org.apache.hadoop.conf.Configuration
-import org.apache.hadoop.fs.Path
+
 import org.apache.hadoop.io._
 import org.apache.hadoop.mapreduce.Mapper
-import org.apache.hadoop.mapreduce.Reducer
 import org.apache.hadoop.mapreduce.Job
 import org.apache.hadoop.mapreduce.lib.input.FileInputFormat
 import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat
@@ -21,10 +20,8 @@ import org.apache.commons.cli.CommandLine
 import org.apache.commons.cli.Options
 import org.apache.commons.cli.{Option => CmdOption}
 import org.apache.commons.cli.OptionBuilder
-import java.io.File
 
-import java.lang.{Iterable => JavaItb}
-import java.util.{Iterator => JavaItr}
+
 
 object Main {
   def main(args: Array[String]) : Unit = {
@@ -33,100 +30,9 @@ object Main {
   }
 }
 
-trait ConfigImplicits {
-  implicit def conf2ComponentConf(conf: Configuration) = new {
-    def edgePath : Path = {
-      new Path(new File(conf.get("componentize.edgedir")).getCanonicalPath)
-    }
-
-    def outputPath(dirname: String) : Path = {
-      outputPath(dirname, rotation)
-    }
-
-    def outputPath(dirname: String, rot: Long) = {
-      val foo = new File(conf.get("componentize.outputdir")).getCanonicalPath
-      new Path(foo + File.separatorChar + dirname + rot)
-    }
-
-    def rotation : Long = { conf.getLong("componentize.rotation", 0) }
-
-    def hasZoneTransfers : Boolean = {
-      conf.getBoolean("componentize.hasnewzonetransfers", false)
-    }
-  }
-}
-
-object Componentize extends ConfigImplicits {
-  type Conf = Configuration
-
-  implicit def string2Text(str: String) : Text = new Text(str)
+object Componentize extends HadoopInterop {
 
   val LOG = Logger.getRootLogger()
-
-  class UnjackedIterable[T](private val jtb: JavaItb[T]) extends Iterable[T] {
-    def elements: Iterator[T] = jtb.iterator
-  }
-  
-  class UnjackedIterator[T](private val jit: JavaItr[T]) extends Iterator[T] {
-    def hasNext: Boolean = jit.hasNext
-    
-    def next: T = jit.next
-  }
-
-  implicit def jitb2sitb[T](jtb: JavaItb[T]): Iterable[T] = new UnjackedIterable(jtb)
-  implicit def jitr2sitr[T](jit: JavaItr[T]): Iterator[T] = new UnjackedIterator(jit)
-
-  class SMapper[A,B,C,D] extends Mapper[A,B,C,D] {
-    type Context = Mapper[A,B,C,D]#Context
-  }
-
-  class SReducer[A,B,C,D] extends Reducer[A,B,C,D] {
-    type Context = Reducer[A,B,C,D]#Context
-
-    override def reduce(key: A, values: JavaItb[B], context: Context) {
-      reduce(key, jitb2sitb(values), context)
-    }
-
-    // This prettys up our code by letting us use a real iterable
-    // instead of Java's terrible one.
-    def reduce(key: A, values: Iterable[B], context: Context) {
-      for (value <- values) {
-        context.write(key.asInstanceOf[C], value.asInstanceOf[D])
-      }
-    }
-  }
-
-  // Because hadoop requires it and type erasure is awful.
-  class TextArrayWritable(klass: java.lang.Class[_ <: Writable])
-                                           extends ArrayWritable(klass) {
-    // This should really use UTF8, but we're already on this train,
-    // so let's ride it.
-    def this() = this(classOf[Text])
-    def this(strings: Array[String]) = {
-      this(classOf[Text])
-      set(strings.map(new Text(_)))
-    }
-    def this(texts: Array[Text]) = {
-      this(classOf[Text])
-      set(texts)
-    }
-
-    def set(texts: Array[Text]) : Unit = {
-      set(texts.asInstanceOf[Array[Writable]])
-    }
-
-    // this is for people who like to debug with TextOutputFormat
-    override def toString() : String = toStrings.mkString(",")
-
-  }
-
-  // For Iterable.min(Iterable[Text])
-  class RichText(protected val txt: Text) extends Ordered[Text] {
-    def compare(that: Text) = txt.compareTo(that)
-    def compare(that: RichText) = txt.compareTo(that.txt)
-  }
-
-  implicit def text2RichText(txt: Text) : RichText = new RichText(txt)
 
   val FromZoneFile = "0"
   val FromInterZone = "1"
@@ -146,7 +52,7 @@ object Componentize extends ConfigImplicits {
       }
     }
 
-    def run(conf: Conf) : Boolean = {
+    def run(conf: Configuration) : Boolean = {
       val job = new Job(conf, "zonefile creation")
       job.setJarByClass(classOf[Componentize])
       job.setMapperClass(classOf[ZoneFileFromEdgeFileMapper])
@@ -209,13 +115,13 @@ object Componentize extends ConfigImplicits {
       }
     }
 
-    def run(conf: Conf) : Boolean = {
+    def run(conf: Configuration) : Boolean = {
       LOG.info("Running FirstPhase.")
       val job = joinJob(conf)
       job.waitForCompletion(true)
     }
 
-    def joinJob(conf: Conf) : Job = {
+    def joinJob(conf: Configuration) : Job = {
       val job = new Job(conf, "edge zone join")
       job.setJarByClass(classOf[Componentize])
       job.setMapperClass(classOf[EdgeZoneJoinMapper])
@@ -265,7 +171,7 @@ object Componentize extends ConfigImplicits {
       }
     }
 
-    def run(conf: Conf) : Boolean = {
+    def run(conf: Configuration) : Boolean = {
       val job = new Job(conf, "interzone")
       job.setJarByClass(classOf[Componentize])
       job.setMapperClass(classOf[InterZoneMapper])
@@ -284,11 +190,11 @@ object Componentize extends ConfigImplicits {
       job.setOutputValueClass(classOf[Text])
       LOG.info("Running SecondPhase.")
 
-      val boo = job.waitForCompletion(true)
+      val res = job.waitForCompletion(true)
       val zoneTrans = job.getCounters.findCounter("componentize", "zonetrans").getValue
       conf.setBoolean("componentize.hasnewzonetransfers", zoneTrans != 0)
 
-      boo
+      res
     }
   }
 
@@ -328,13 +234,13 @@ object Componentize extends ConfigImplicits {
       }
     }
 
-    def run(conf: Conf) : Boolean = {
+    def run(conf: Configuration) : Boolean = {
       Componentize.LOG.info("Running ThirdPhase.")
       val job = joinJob(conf)
       job.waitForCompletion(true)
     }
 
-    def joinJob(conf: Conf) : Job = {
+    def joinJob(conf: Configuration) : Job = {
       val job = new Job(conf, "edge zone join")
       job.setJarByClass(classOf[Componentize])
       job.setMapperClass(classOf[ZoneFileMapper])
@@ -358,7 +264,7 @@ object Componentize extends ConfigImplicits {
   }
 }
 
-class Componentize extends Configured with Tool with ConfigImplicits {
+class Componentize extends Configured with Tool with HadoopInterop {
   def run(args: Array[String]): Int = {
     val conf = getRealConf(args)
 
