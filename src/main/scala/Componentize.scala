@@ -320,9 +320,11 @@ object Componentize extends ConfigImplicits {
             nodes = arr(0) :: nodes
           }
         }
+        val conf = context.getConfiguration()
+        val tail = if (conf.hasZoneTransfers) "\t"+FromZoneFile else ""
 
         nodes.foreach(node =>
-          context.write(new Text(smallestZone), new Text(node+"\t"+FromZoneFile)))
+          context.write(new Text(smallestZone), new Text(node+tail)))
       }
     }
 
