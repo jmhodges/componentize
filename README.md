@@ -51,7 +51,7 @@ The jarfile created in the `target` directory by `buildr package` can
 then be added to your `HADOOP_CLASSPATH`, or just run with the usual
 single-core, single-machine Hadoop command like so:
 
-    $HADOOP_HOME/bin/hadoop jar target/componentize-1.0.0.jar \
+    $HADOOP_HOME/bin/hadoop jar target/componentize-$someversion.jar \
       componentize.Main -edgedir edges/
 
 ### Input
@@ -71,10 +71,10 @@ You can find some example input data in the `examples` directory.
 
 ### Output
 
-The output of Componentize is ... verbose. And I don't just mean what's
-printed to `/dev/stdout`. In the output directory, you'll have 6
-directories of output for each iteration of Componentize. This is not
-a lot of fun.
+The output of Componentize is ... verbose. And I don't just mean
+what's printed to `/dev/stdout`. In the output directory, you'll have
+3 directories of output for each iteration of Componentize plus one
+for the set up. This is not a lot of fun.
 
 However, when Componentize finishes it will be a good sport and log
 what directory you can find your output in at the end. This directory
