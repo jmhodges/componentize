@@ -33,10 +33,6 @@ trait HadoopInterop {
     }
   }
 
-  implicit def string2Text(str: String) : Text = new Text(str)
-
-
-
   class UnjackedIterable[T](private val jtb: JavaItb[T]) extends Iterable[T] {
     def elements: Iterator[T] = jtb.iterator
   }

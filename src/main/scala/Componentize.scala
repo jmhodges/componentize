@@ -22,7 +22,6 @@ import org.apache.commons.cli.{Option => CmdOption}
 import org.apache.commons.cli.OptionBuilder
 
 
-
 object Main {
   def main(args: Array[String]) : Unit = {
     val result = ToolRunner.run(new Configuration(), new Componentize(), args);
@@ -41,7 +40,7 @@ object Componentize extends HadoopInterop {
     class ZoneFileFromEdgeFileMapper extends SMapper[LongWritable, Text, Text, Text] {
       override def map(key: LongWritable, line: Text, context:Context) = {
         val pair = line.toString.split("\t")
-        pair.foreach(node => context.write(node,node))
+        pair.foreach(node => context.write(new Text(node), new Text(node)))
       }
     }
 
