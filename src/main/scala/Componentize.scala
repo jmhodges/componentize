@@ -49,6 +49,10 @@ trait ConfigImplicits {
     }
 
     def rotation : Long = { conf.getLong("componentize.rotation", 0) }
+
+    def hasZoneTransfers : Boolean = {
+      conf.getBoolean("componentize.hasnewzonetransfers", false)
+    }
   }
 }
 
@@ -124,6 +128,9 @@ object Componentize extends ConfigImplicits {
 
   implicit def text2RichText(txt: Text) : RichText = new RichText(txt)
 
+  val FromZoneFile = "0"
+  val FromInterZone = "1"
+
   object SetUp {
     class ZoneFileFromEdgeFileMapper extends SMapper[LongWritable, Text, Text, Text] {
       override def map(key: LongWritable, line: Text, context:Context) = {
@@ -134,7 +141,7 @@ object Componentize extends ConfigImplicits {
 
     class ZoneFileFromEdgeFileReducer extends SReducer[Text, Text, Text, Text] {
       override def reduce(node: Text, sameNodes: Iterable[Text], context:Context) {
-        val value = new Text(node.toString + "\t0")
+        val value = new Text(node.toString + "\t" + FromZoneFile)
         context.write(node, value)
       }
     }
@@ -163,20 +170,17 @@ object Componentize extends ConfigImplicits {
   }
 
   object FirstPhase {
-    val FromZoneFile = new Text("zonednode")
-    val FromEdgeFile = new Text("edgednode")
-
     class EdgeZoneJoinMapper
     extends SMapper[LongWritable, Text, Text, Text] {
       override def map(key: LongWritable, line: Text, context: Context) {
         val arr = line.toString.split("\t")
-        Componentize.LOG.info(arr.mkString(","))
+
         if (arr.size < 3) {
           arr.foreach(node =>
             context.write(new Text(node), new Text(arr.mkString(","))))
 
         } else {
-          context.write(new Text(arr(1)), new Text(arr(0)+"\t0"))
+          context.write(new Text(arr(1)), new Text(arr(0)+"\t"+FromZoneFile))
         }
       }
     }
@@ -255,7 +259,7 @@ object Componentize extends ConfigImplicits {
         for (zone <- zones) {
           if(zone != smallestZone) {
             context.getCounter("componentize", "zonetrans").increment(1)
-            context.write(new Text(zone), new Text(smallestZone+"\t1"))
+            context.write(new Text(zone), new Text(smallestZone+"\t"+FromInterZone))
           }
         }
       }
@@ -289,8 +293,6 @@ object Componentize extends ConfigImplicits {
   }
 
   object ThirdPhase {
-    val FromInterZone = "1"
-    val FromZoneFile = "0"
 
     class ZoneFileMapper
     extends SMapper[LongWritable, Text, Text, Text] {
@@ -320,7 +322,7 @@ object Componentize extends ConfigImplicits {
         }
 
         nodes.foreach(node =>
-          context.write(new Text(smallestZone), new Text(node+"\t0")))
+          context.write(new Text(smallestZone), new Text(node+"\t"+FromZoneFile)))
       }
     }
 
@@ -385,15 +387,11 @@ class Componentize extends Configured with Tool with ConfigImplicits {
       Componentize.LOG.info("Finished ThirdPhase.")
 
       conf.setLong("componentize.rotation", conf.rotation+1)
-    } while (hasNewZoneTransfers(conf))
+    } while (conf.hasZoneTransfers)
 
     Componentize.LOG.info("Output directory: " +
                           conf.outputPath("zonefiles", conf.rotation-1))
     return 0
-  }
-
-  def hasNewZoneTransfers(conf: Configuration) : Boolean = {
-    conf.getBoolean("componentize.hasnewzonetransfers", false)
   }
 
   def getRealConf(args: Array[String]) : Configuration = {
