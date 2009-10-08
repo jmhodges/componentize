@@ -100,3 +100,9 @@ delimited files where the first column is the component label (or
 * There is no way to do only *some* of the processing. It is all of
   the set up and phases or none at all. Though, we could just make it
   easier for someone to configure the `Phases` themselves.
+
+# Bonus
+
+On build, we use [Scala X-Ray](http://github.com/harrah/browse) to
+build a nice HTML version of the code. Check it out in
+`target/classes.sxr/index.html`.
