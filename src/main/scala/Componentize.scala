@@ -134,7 +134,8 @@ object Componentize extends ConfigImplicits {
 
     class ZoneFileFromEdgeFileReducer extends SReducer[Text, Text, Text, Text] {
       override def reduce(node: Text, sameNodes: Iterable[Text], context:Context) {
-        context.write(node, node)
+        val value = new Text(node.toString + "\t0")
+        context.write(node, value)
       }
     }
 
@@ -165,92 +166,49 @@ object Componentize extends ConfigImplicits {
     val FromZoneFile = new Text("zonednode")
     val FromEdgeFile = new Text("edgednode")
 
-    class EdgeMapper extends SMapper[LongWritable, Text, Text, TextArrayWritable] {
-      // The key emitted is the zone (a.k.a. the key in EdgeZoneJoin)
-      override def map(key: LongWritable, line: Text, context:Context)  = {
-        val pair = line.toString.split("\t")
-        val aw = new TextArrayWritable(Array(FromEdgeFile,
-                                             new Text(pair.mkString(","))))
-        pair.foreach(node => context.write(new Text(node), aw))
-      }
-    }
-
-    class ZoneMapper extends SMapper[LongWritable, Text, Text, TextArrayWritable] {
-      override def map(key: LongWritable, line: Text, context: Context) = {
-        val zoneAndNode = line.toString.split("\t")
-        var zone = zoneAndNode(0)
-        val node = zoneAndNode(1)
-        val aw = new TextArrayWritable(Array(FromZoneFile, new Text(zone)))
-
-        context.write(new Text(node), aw)
-      }
-    }
-    
     class EdgeZoneJoinMapper
-    extends SMapper[Text, TextArrayWritable, Text, TextArrayWritable] {}
+    extends SMapper[LongWritable, Text, Text, Text] {
+      override def map(key: LongWritable, line: Text, context: Context) {
+        val arr = line.toString.split("\t")
+        Componentize.LOG.info(arr.mkString(","))
+        if (arr.size < 3) {
+          arr.foreach(node =>
+            context.write(new Text(node), new Text(arr.mkString(","))))
+
+        } else {
+          context.write(new Text(arr(1)), new Text(arr(0)+"\t0"))
+        }
+      }
+    }
     
     // Outputs EdgeWithOneZoneFile
     class EdgeZoneJoinReducer
-    extends SReducer[Text, TextArrayWritable, Text, Text] {
+    extends SReducer[Text, Text, Text, Text] {
       override def reduce(node: Text,
-                          zoneAndEdges: Iterable[TextArrayWritable],
+                          zoneAndEdges: Iterable[Text],
                           context: Context) = {
-        var zones = List[Text]()
-        var edges = List[Text]()
+        var zones = List[String]()
+        var edges = List[String]()
+
         for (aw <- zoneAndEdges) {
-          var arr = aw.get
-          if(arr(0) == FromEdgeFile) {
-            edges = arr(1).asInstanceOf[Text] :: edges
+          var arr = aw.toString.split("\t")
+          if(arr.size < 2) {
+            edges = arr(0) :: edges
           } else {
-            zones = arr(1).asInstanceOf[Text] :: zones
+            zones = arr(0) :: zones
           }
         }
         
         for(edge <- edges) {
-          context.write(edge, zones(0))
+          context.write(new Text(edge), new Text(zones(0)))
         }
       }
     }
-    
+
     def run(conf: Conf) : Boolean = {
       LOG.info("Running FirstPhase.")
-      
-      val edgeJob = mapperJob(conf, classOf[EdgeMapper],
-                              "edge mapper",
-                              conf.edgePath,
-                              conf.outputPath("edgefilesjoin"))
-      if (!edgeJob.waitForCompletion(true)) return false
-
-      val zoneJob = mapperJob(conf,classOf[ZoneMapper],
-                              "zone mapper",
-                              conf.outputPath("zonefiles", conf.rotation-1),
-                              conf.outputPath("zonefilesjoin"))
-      if (!zoneJob.waitForCompletion(true)) return false
-
       val job = joinJob(conf)
       job.waitForCompletion(true)
-    }
-
-    def mapperJob(conf: Conf,
-                  mapperKlass: Class[_ <: Mapper[_,_,_,_]],
-                  name: String,
-                  inputPath: Path,
-                  outputPath: Path) : Job = {
-      val job = new Job(conf, name)
-      job.setJarByClass(classOf[Componentize])
-      job.setMapperClass(mapperKlass)
-      
-      job.setInputFormatClass(classOf[TextInputFormat])
-      FileInputFormat.setInputPaths(job, inputPath)
-      FileOutputFormat.setOutputPath(job, outputPath)
-      
-      job.setMapOutputKeyClass(classOf[Text])
-      job.setMapOutputValueClass(classOf[TextArrayWritable])
-      job.setOutputKeyClass(classOf[Text])
-      job.setOutputValueClass(classOf[TextArrayWritable])
-      job.setOutputFormatClass(classOf[SequenceFileOutputFormat[_,_]])
-
-      return job
     }
 
     def joinJob(conf: Conf) : Job = {
@@ -259,17 +217,16 @@ object Componentize extends ConfigImplicits {
       job.setMapperClass(classOf[EdgeZoneJoinMapper])
       job.setReducerClass(classOf[EdgeZoneJoinReducer])
 
-      job.setInputFormatClass(
-        classOf[SequenceFileInputFormat[Text, TextArrayWritable]])
+      job.setInputFormatClass(classOf[TextInputFormat])
       FileInputFormat.setInputPaths(job,
-                                    conf.outputPath("edgefilesjoin"),
-                                    conf.outputPath("zonefilesjoin"))
+                                    conf.edgePath,
+                                    conf.outputPath("zonefiles", conf.rotation-1))
       job.setOutputFormatClass(classOf[SequenceFileOutputFormat[Text, Text]])
 
       FileOutputFormat.setOutputPath(job, conf.outputPath("edgewithonezonefiles"))
 
       job.setMapOutputKeyClass(classOf[Text])
-      job.setMapOutputValueClass(classOf[TextArrayWritable])
+      job.setMapOutputValueClass(classOf[Text])
       job.setOutputKeyClass(classOf[Text])
       job.setOutputValueClass(classOf[Text])
 
@@ -292,13 +249,13 @@ object Componentize extends ConfigImplicits {
         for (z <- zonesItb) {
           zones = z.toString :: zones
         }
-                           
+
         val smallestZone = Iterable.min(zones)
 
         for (zone <- zones) {
           if(zone != smallestZone) {
             context.getCounter("componentize", "zonetrans").increment(1)
-            context.write(new Text(zone), new Text(smallestZone))
+            context.write(new Text(zone), new Text(smallestZone+"\t1"))
           }
         }
       }
@@ -313,7 +270,7 @@ object Componentize extends ConfigImplicits {
       job.setInputFormatClass(classOf[SequenceFileInputFormat[Text, Text]])
       FileInputFormat.setInputPaths(job, conf.outputPath("edgewithonezonefiles"))
 
-      job.setOutputFormatClass(classOf[SequenceFileOutputFormat[Text, Text]])
+      job.setOutputFormatClass(classOf[TextOutputFormat[Text, Text]])
       FileOutputFormat.setOutputPath(job, conf.outputPath("interzonefiles"))
 
       job.setMapOutputKeyClass(classOf[Text])
@@ -332,104 +289,45 @@ object Componentize extends ConfigImplicits {
   }
 
   object ThirdPhase {
-    val FromInterZone = new Text("interzone")
-    val FromZoneFile = new Text("zonednode")
-
-    class InterZoneMapper extends SMapper[Text, Text, Text, TextArrayWritable] {
-      override def map(oldZone: Text, newZone: Text, context: Context) = {
-        val aw = new TextArrayWritable(Array(FromInterZone, newZone))
-        context.write(oldZone, aw)
-      }
-    }
-
-    class ZoneFileVertexMapper
-    extends SMapper[LongWritable, Text, Text, TextArrayWritable] {
-      override def map(key: LongWritable, line: Text, context: Context) = {
-        val zoneAndNode = line.toString.split("\t")
-        val zone = zoneAndNode(0)
-        val node = zoneAndNode(1)
-        val aw = new TextArrayWritable(Array(FromZoneFile, new Text(node)))
-        
-        context.write(new Text(zone), aw)
-      }
-    }
+    val FromInterZone = "1"
+    val FromZoneFile = "0"
 
     class ZoneFileMapper
-    extends SMapper[Text, TextArrayWritable, Text, TextArrayWritable] {}
+    extends SMapper[LongWritable, Text, Text, Text] {
+      override def map(key: LongWritable, line: Text, context:Context) {
+        val arr = line.toString.split("\t")
+        context.write(new Text(arr(0)), new Text(arr.drop(1).mkString("\t")))
+      }
+    }
     
     class ZoneFileReducer
-    extends SReducer[Text, TextArrayWritable, Text, Text] {
+    extends SReducer[Text, Text, Text, Text] {
       override def reduce(oldZone: Text,
-                          nodesAndNewZones: Iterable[TextArrayWritable],
+                          nodesAndNewZones: Iterable[Text],
                           context: Context) = {
         var smallestZone = oldZone.toString
         var possible = smallestZone
         var nodes = List[String]()
         
         for (nNZ <- nodesAndNewZones) {
-          var arr = nNZ.get
-          if (arr(0) == FromInterZone) {
-            possible = arr(1).asInstanceOf[Text].toString
+          var arr = nNZ.toString.split("\t")
+          if (arr(1) == FromInterZone) {
+            possible = arr(0)
             if (smallestZone > possible) smallestZone = possible
-
           } else {
-            nodes = arr(1).asInstanceOf[Text].toString :: nodes
+            nodes = arr(0) :: nodes
           }
         }
 
         nodes.foreach(node =>
-          context.write(new Text(smallestZone), new Text(node)))
+          context.write(new Text(smallestZone), new Text(node+"\t0")))
       }
     }
 
     def run(conf: Conf) : Boolean = {
       Componentize.LOG.info("Running ThirdPhase.")
-      val interzoneJob = mapperJob(conf,
-                                   classOf[InterZoneMapper],
-                                   "interzone mapper",
-                                   conf.outputPath("interzonefiles"),
-                                   conf.outputPath("interzonefilestransitionsjoin"),
-                                   classOf[SequenceFileInputFormat[Text, Text]]
-                                 )
-
-      if (!interzoneJob.waitForCompletion(true)) return false
-
-      Componentize.LOG.info("Finished interzone mapper.")
-      val zoneVertexJob = mapperJob(conf,
-                                    classOf[ZoneFileVertexMapper],
-                                    "zone vertex mapper",
-                                    conf.outputPath("zonefiles", conf.rotation-1),
-                                    conf.outputPath("zonefilestransitionsjoin"),
-                                    classOf[TextInputFormat]
-                                  )
-
-      if (!zoneVertexJob.waitForCompletion(true)) return false
-      Componentize.LOG.info("Finished zone vertex mapper")
       val job = joinJob(conf)
       job.waitForCompletion(true)
-    }
-
-    def mapperJob(conf: Conf,
-                  mapperKlass: Class[_ <: Mapper[_,_,_,_]],
-                  name: String,
-                  inputPath: Path,
-                  outputPath: Path,
-                  inputFormatKlass: Class[_ <: FileInputFormat[_,_]]) : Job = {
-      val job = new Job(conf, name)
-      job.setJarByClass(classOf[Componentize])
-      job.setMapperClass(mapperKlass)
-      job.setInputFormatClass(inputFormatKlass)
-
-      FileInputFormat.setInputPaths(job, inputPath)
-      job.setOutputFormatClass(
-        classOf[SequenceFileOutputFormat[Text, TextArrayWritable]])
-      FileOutputFormat.setOutputPath(job, outputPath)
-
-      job.setMapOutputKeyClass(classOf[Text])
-      job.setMapOutputValueClass(classOf[TextArrayWritable])
-      job.setOutputKeyClass(classOf[Text])
-      job.setOutputValueClass(classOf[TextArrayWritable])
-      return job
     }
 
     def joinJob(conf: Conf) : Job = {
@@ -438,17 +336,17 @@ object Componentize extends ConfigImplicits {
       job.setMapperClass(classOf[ZoneFileMapper])
       job.setReducerClass(classOf[ZoneFileReducer])
 
-      job.setInputFormatClass(
-        classOf[SequenceFileInputFormat[Text, TextArrayWritable]])
+      job.setInputFormatClass(classOf[TextInputFormat])
+
       FileInputFormat.setInputPaths(job,
-                                    conf.outputPath("interzonefilestransitionsjoin"),
-                                    conf.outputPath("zonefilestransitionsjoin"))
+                                    conf.outputPath("zonefiles", conf.rotation-1),
+                                    conf.outputPath("interzonefiles"))
 
       job.setOutputFormatClass(classOf[TextOutputFormat[Text, Text]])
       FileOutputFormat.setOutputPath(job, conf.outputPath("zonefiles"))
 
       job.setMapOutputKeyClass(classOf[Text])
-      job.setMapOutputValueClass(classOf[TextArrayWritable])
+      job.setMapOutputValueClass(classOf[Text])
       job.setOutputKeyClass(classOf[Text])
       job.setOutputValueClass(classOf[Text])
       return job
