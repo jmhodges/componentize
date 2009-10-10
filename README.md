@@ -22,7 +22,6 @@ code.)
 To run this pretty little creature, you'll need to create it's jar
 file.
 
-
 To do that, you'll run `buildr package` (or `jbuildr package` if you are on OS X and
 have to use the JRuby version). However! However, you will need in
 your `CLASSPATH` the Hadoop 0.20.1 core jar, all of the Hadoop's
@@ -77,10 +76,9 @@ what's printed to `/dev/stdout`. In the output directory, you'll have
 for the set up. This is not a lot of fun.
 
 However, when Componentize finishes it will be a good sport and log
-what directory you can find your output in at the end. This directory
-will be a directory starting with `zonefiles` and ending in a
-number. It will also be the `zonefiles` directory with the greatest
-number at the end.
+what directory you can find your output. This directory will be a
+directory starting with `zonefiles` and ending in a number. It will
+also be the `zonefiles` directory with the greatest number at the end.
 
 This output directory will be filled with one or more tab and newline
 delimited files where the first column is the component label (or
@@ -105,4 +103,4 @@ delimited files where the first column is the component label (or
 
 On build, we use [Scala X-Ray](http://github.com/harrah/browse) to
 build a nice HTML version of the code. Check it out in
-`target/classes.sxr/index.html`.
+`target/classes.sxr/index.html` after you compile Componentize.
